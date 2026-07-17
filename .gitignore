@@ -1,0 +1,18 @@
+# Data (too large / regeneratable — not tracked in git)
+data/
+dataset/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+
+*.pyc
+
+# Claude
+.claude/
+
+# notebook 
+Sample_Dataset.ipynb
+
