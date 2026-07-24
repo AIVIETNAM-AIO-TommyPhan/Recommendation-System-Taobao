@@ -13,5 +13,8 @@ __pycache__/
 # Claude
 .claude/
 
-# notebook 
+# notebook
 Sample_Dataset.ipynb
+
+# CatBoost training logs (auto-generated on every .fit() call)
+catboost_info/
