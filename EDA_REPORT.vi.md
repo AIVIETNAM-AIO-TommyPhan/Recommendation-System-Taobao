@@ -13,6 +13,10 @@ Các hình minh họa nhúng bên dưới được xây dựng riêng cho báo c
 phát hiện chính có một hình. Màu cam đánh dấu tín hiệu phía quảng cáo (ad-side)
 xuyên suốt; màu xanh dương đánh dấu phía người dùng/ngữ cảnh (user/context).
 
+> **📘 Cách đọc báo cáo này.** Các ô 📘 giải thích một thuật ngữ thống kê ở lần đầu
+> nó xuất hiện — bỏ qua nếu bạn đã quen; phát hiện nằm phía trên ô vẫn tự đứng vững
+> mà không cần đến chúng.
+
 ---
 
 ## 0. Đã xử lý: `train.csv` bị Excel làm hỏng đã được thay thế
@@ -40,11 +44,12 @@ df["time_stamp"] = pd.to_datetime(df["time_stamp"])
 assert df["time_stamp"].dt.second.nunique() > 1, "train.csv lost seconds — regenerate"
 ```
 
-**Về trùng lặp.** 11,786 dòng có chung khóa `(userid, time_stamp)` nhưng **không có
-dòng nào** trùng lặp toàn bộ (full-row) — đó là trường hợp một người dùng thấy nhiều
-quảng cáo trong cùng một giây, là hiện tượng thật. Số lượng trùng lặp trong báo cáo
-tổng quát được tính sau khi đã bỏ `userid`/`time_stamp`, nên đây cũng không phải vấn
-đề trùng lặp dữ liệu. Không nên khử trùng (de-duplicate) các dòng này.
+**Về trùng lặp.** 11,213 cặp `(userid, time_stamp)` xuất hiện nhiều hơn một lần, bao
+phủ tổng cộng 22,999 dòng (trong đó 11,786 dòng là bản sao thứ-hai-trở-đi của một
+cặp). Nhưng **không có dòng nào** trùng lặp toàn bộ (full-row) — đó là trường hợp một người dùng
+thấy nhiều quảng cáo trong cùng một giây, là hiện tượng thật. Số lượng trùng lặp
+trong báo cáo tổng quát được tính sau khi đã bỏ `userid`/`time_stamp`, nên đây cũng
+không phải vấn đề trùng lặp dữ liệu. Không nên khử trùng (de-duplicate) các dòng này.
 
 Mọi phát hiện bên dưới đều đã được tính lại trên các file đã nạp lại và cho ra kết
 quả giống hệt.
@@ -54,83 +59,104 @@ quả giống hệt.
 > đáng tin cậy chừng nào file đầu vào chưa được xác nhận là tốt, vì vậy mục này được
 > đánh số 0: nó tồn tại để (1) *chứng minh* file hiện tại là ổn bằng một bảng kiểm tra
 > thay vì chỉ khẳng định suông, (2) để lại một guard chống lỗi âm thầm để sự cố Excel
-> không thể tái diễn mà không ai hay biết, và (3) ngăn người đọc khử trùng 11,786 dòng
+> không thể tái diễn mà không ai hay biết, và (3) ngăn người đọc khử trùng 22,999 dòng
 > cùng-giây chỉ *trông giống* trùng lặp.
 
 ---
 
-## 1. Vai trò của các cột — suy luận tổng quát ở đây là sai, một cách có chủ đích
+## 1. Vai trò của các cột — một cột số nguyên không đương nhiên là một đại lượng
 
-**Quan sát.** 16 trong số 19 cột dùng để mô hình hóa có kiểu số nguyên, nên
-`infer_column_kinds` gọi chúng là numeric và đưa vào pha phân tích số, tính skew, biên
-IQR và hệ số Pearson *r* trên chúng. Hai ví dụ về kết quả trả về:
+**Quan sát.** 16 trong số 19 cột dùng để mô hình hóa được lưu dưới dạng số nguyên,
+nên `infer_column_kinds` gọi tất cả là "numeric" và đưa vào pha phân tích số, và pha
+này ngoan ngoãn tính skew, biên ngoại lai IQR và hệ số Pearson *r* trên từng cột.
+Nhưng kiểu `int` chỉ là *cách lưu trữ* — nó không nói gì về **ý nghĩa** của con số. 16
+số nguyên này thật ra là bốn loại khác nhau:
 
-**"`adgroup_id` skew −2.121, 6,728 điểm ngoại lai theo IQR, đề xuất biến đổi log."**
-Mọi thống kê ở đây đều là phép tính số học trên các định danh (identifier). Q1 =
-619,783 và Q3 = 715,187, nên biên IQR rơi vào [476,677, 858,293] và 6,728 lượt hiển
-thị (impression) nằm ngoài biên đó. Nhưng các "điểm ngoại lai" này chỉ đơn giản là
-những quảng cáo có số ID tình cờ nhỏ hoặc lớn — quảng cáo `232014` không phải một
-quảng cáo bất thường, nó chỉ là một quảng cáo có ID nhỏ. Tương tự, giá trị trung bình
-của `adgroup_id` là 660,710, một con số không có ý nghĩa tham chiếu nào, và độ lệch
-−2.121 mô tả cách Taobao cấp phát số ID, chứ không nói gì về bản thân các quảng cáo.
-Biến đổi log ở đây thực chất là nén lại không gian ID.
+- một **đại lượng** thật sự — `price` (¥200 đúng là nhiều hơn ¥100 một khoản ¥100);
+- các **mã ID** — `adgroup_id`, `cate_id`, `brand`, `customer`, `cms_segid` — những
+  cái tên tình cờ được viết bằng chữ số, mà độ lớn thì vô nghĩa: quảng cáo #660,710
+  không "nhiều" hơn quảng cáo #85,419, cũng như `SELECT AVG(primary_key)` chẳng có
+  nghĩa gì;
+- các **mã có thứ tự** — `age_level`, `pvalue_level`, `cms_group_id`, … — nơi *thứ
+  tự* là thật nhưng khoảng cách giữa các mức thì không;
+- các **cột tuần hoàn** — `hour`, `weekday` — nơi 23:00 nằm sát 00:00.
 
-**"`cms_segid` ~ `cms_group_id`, r = 0.984."** Trường hợp này tinh vi hơn, vì mối
-tương quan là *có thật* nhưng con số lại sai đến hai lần. Hệ số tương quan thô trên
-toàn bộ 240,000 dòng là **0.453**, không phải 0.984 — con số 0.984 chỉ xuất hiện sau
-khi loại bỏ 55.6% số dòng có giá trị sentinel `cms_segid = 0`, nghĩa là con số được
-trích dẫn trong bản nháp trước đó đã âm thầm điều kiện hóa (condition) trên các dòng
-không missing. Và ngay cả 0.453 cũng vô nghĩa như một thống kê *tuyến tính*: cả hai
-cột đều là mã số (code), nên Pearson thực chất đang đo xem các số ID có được gán theo
-một thứ tự tương thích hay không. Mối quan hệ thật sự ở đây là quan hệ hàm
-(functional), không phải tuyến tính — toàn bộ **96** mức `cms_segid` khác 0 đều ánh
-xạ đúng một-một vào đúng một `cms_group_id`, tức là `cms_segid` xác định hoàn toàn
-`cms_group_id`. Đây là đối ứng phía người dùng của các phụ thuộc phía quảng cáo ở §6,
-và tương quan (correlation) là công cụ sai để tìm ra nó (xem §6 để biết lý do).
+Sai lầm duy nhất của công cụ là đối xử với cả 16 cột như thể chúng đều thuộc loại
+đầu tiên. Dưới đây: một dòng cụ thể để thấy các cột, rồi hai kiểu mà sai lầm đó gây họa.
+
+> **📘 Đại lượng và nhãn.** Một **đại lượng** (quantity) là con số mà *độ lớn* và *hiệu
+> số* đều có thật — bạn có thể lấy trung bình và trừ nó. Một **nhãn** (label) là một
+> danh tính chỉ mượn chữ số để viết ra (một ID, một mã danh mục). Cả hai đều hiện lên
+> dưới dạng `int`; chỉ ý nghĩa là khác — và mean / skew / IQR / tương quan chỉ có nghĩa
+> trên đại lượng.
+
+**Một dòng, nhìn gần.** Bốn lượt hiển thị của cùng một quảng cáo (`adgroup_id` 433864):
+
+| adgroup_id | cate_id | campaign_id | customer | brand | price | cms_segid | cms_group_id | click |
+|---|---|---|---|---|---|---|---|---|
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 4 | 0 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 3 | 1 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 5 | 1 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 30 | 4 | 0 |
+
+Đọc ngang một dòng: mọi cột phía quảng cáo (`cate_id`, `campaign_id`, `customer`,
+`brand`, `price`) đều **giống hệt nhau trên cả bốn dòng** — đây không phải bốn sự kiện
+khác nhau, mà là thuộc tính của một quảng cáo được sao chép lên bốn lượt hiển thị
+riêng biệt (quan hệ hàm mà §6 nói chi tiết). Chỉ `cms_segid`, `cms_group_id` và
+`click` thay đổi, vì chúng mô tả *người dùng và thời điểm*, không phải quảng cáo.
+
+**Sai lầm gây họa ở đâu — hai ví dụ.**
+
+*(1) Lấy trung bình một ID.* Công cụ gắn cờ "`adgroup_id` skew −2.121, 6,728 điểm
+ngoại lai IQR, đề xuất biến đổi log." Mọi con số ở đó đều là phép tính số học trên các
+mã ID. Các tứ phân vị là Q1 = 619,783 và Q3 = 715,187, nên biên ngoại lai IQR rơi vào
+[476,677, 858,293] và 6,728 lượt hiển thị nằm ngoài biên — nhưng các "điểm ngoại lai"
+đó chỉ là những quảng cáo có chữ số ID tình cờ nhỏ hoặc lớn. Quảng cáo 433864 ở trên bị
+gắn cờ, nhưng nó là một quảng cáo hoàn toàn bình thường (388 lượt hiển thị, CTR 15.5%).
+Giá trị trung bình 660,710 và độ lệch −2.121 mô tả cách Taobao *cấp phát* số ID, chứ
+không nói gì về các quảng cáo; biến đổi log chỉ nén lại không gian ID chứ không sửa
+được gì.
+
+*(2) Tương quan giữa hai ID.* Công cụ gắn cờ "`cms_segid` ~ `cms_group_id`, r =
+0.984," một liên hệ đường-thẳng gần như hoàn hảo. Nó sai hai lần. **Thứ nhất**, con số
+0.984 chỉ xuất hiện sau khi âm thầm loại bỏ 55.6% số dòng mang sentinel `cms_segid = 0`
+(một giá trị giữ chỗ đại diện cho *missing*, xem §3); trên toàn bộ 240,000 dòng nó là
+0.453. **Thứ hai, và cơ bản hơn:** tương quan hỏi *"hai cột này có tăng cùng nhau theo
+một đường thẳng không?"* — câu hỏi sai cho các mã ID. Liên hệ thật sự là chính xác
+nhưng không tuyến tính — mỗi mức trong **96** mức `cms_segid` khác 0 ánh xạ vào đúng
+một `cms_group_id`. `cms_segid` *xác định* `cms_group_id`, theo cách một khóa ngoại
+(foreign key) trỏ tới đúng dòng của nó, và tương quan không thấy được điều đó: nó báo
+một con số 0.453 tầm thường cho một quan hệ thực chất chặt 100%.
+
+> **📘 *r*, hệ số tương quan.** Pearson **r** chạy từ −1 đến +1 và chỉ đo mức độ một
+> **đường thẳng** duy nhất khớp với hai cột: +1 là đường thẳng đi lên hoàn hảo, 0 là
+> không có liên hệ tuyến tính, −1 là đường thẳng đi xuống hoàn hảo. Một quan hệ có thể
+> dự đoán được hoàn hảo mà *vẫn* nhận điểm *r* thấp nếu hình dạng của nó không phải
+> đường thẳng — đúng như những gì xảy ra với `cms_segid`.
 
 ![Vai trò cột: độ lớn ID so với CTR, và hàm bậc thang segid→group](eda_out/report_figures/fig_column_roles.png)
 
-Biểu đồ bên trái vẽ CTR của từng quảng cáo theo số `adgroup_id` thô của nó. Dải màu
-xám là toàn bộ phần bị quy tắc IQR gắn nhãn "ngoại lai" (dưới biên 476,677 — không có
-quảng cáo nào chạm biên trên 858,293). Các điểm cam đó không phải quảng cáo bất
-thường: CTR của chúng (9%–31%) nằm trong đúng khoảng với các điểm xanh mà quy tắc bỏ
-qua. Quy tắc chỉ đang phản ứng với việc số ID nhỏ, điều này không mang thông tin gì —
-so sánh với `price` ở §4, nơi phần đuôi bị gắn cờ (12,194 dòng trên ¥566.5) thực sự là
-tập các mặt hàng đắt tiền thật.
+**Biểu đồ bên trái** vẽ CTR của từng quảng cáo theo số `adgroup_id` thô. Dải màu cam
+là toàn bộ phần bị quy tắc ngoại lai gắn cờ (dưới biên 476,677 — không quảng cáo nào
+chạm biên trên 858,293); vậy mà CTR của chúng (9%–31%) nằm ngay trong khoảng với các
+điểm xanh mà quy tắc bỏ qua. Quy tắc chỉ phản ứng với việc số ID nhỏ, điều này không
+cho ta thông tin gì. (So sánh với `price` ở §4, nơi phần đuôi bị gắn cờ — 12,194 dòng
+trên ¥566.5 — thực sự là các mặt hàng đắt tiền thật.)
 
-Biểu đồ bên phải vẽ mọi cặp `(cms_segid, cms_group_id)` quan sát được. Nếu đây là
-quan hệ tuyến tính, các điểm sẽ rải rác lỏng lẻo quanh một đường dốc lên — thay vào đó
-chúng tạo thành các bậc thang nằm ngang phẳng: mỗi `cms_segid` trên một bậc chỉ chia
-sẻ đúng một `cms_group_id`, không hơn không kém. Hình bậc thang đó *chính là* quan hệ
-hàm, và đó là lý do vì sao tương quan cho ra hai đáp số khác nhau, cả hai đều sai
-(0.453 / 0.984) tùy vào việc dòng nào được đưa vào — Pearson *r* đo mức độ một đường
-thẳng khớp với dữ liệu, và không đường thẳng nào khớp được với một bậc thang.
+**Biểu đồ bên phải** vẽ mọi cặp `(cms_segid, cms_group_id)` quan sát được. Quan hệ
+tuyến tính sẽ rải rác quanh một đường dốc lên; thay vào đó các điểm rơi trên các bậc
+thang nằm ngang phẳng — mỗi `cms_segid` chỉ ứng với một, và chỉ một, `cms_group_id` —
+một cầu thang 96-sang-13, không phải một đường thẳng. Cầu thang đó *chính là* quan hệ
+hàm, và đó là lý do tương quan cho ra hai đáp số khác nhau, cả hai đều sai (0.453 /
+0.984): không đường thẳng đơn nào khớp được với một cầu thang.
 
-> **📘 Đọc các con số ở trên, theo cách dễ hiểu.**
-> - **Mean / Q1 / Q3** chỉ là "giá trị trung bình," "phân vị thứ 25," và "phân vị thứ
->   75" của số ID thô. Đây là phép tính đúng về mặt số học, nhưng vì bản thân số ID là
->   tùy ý (quảng cáo #85,419 không "kém" hơn quảng cáo #842,734), nên phép tính đó trả
->   lời một câu hỏi không ai hỏi.
-> - **Skew (−2.121)** đo xem một phân phối lệch trái hay lệch phải so với giá trị
->   trung bình của nó (xem §4 để biết cơ chế đầy đủ). Áp dụng lên số ID, nó chỉ mô tả
->   cách Taobao tình cờ cấp phát số — không phải một tính chất của các quảng cáo.
-> - **Điểm ngoại lai theo IQR (6,728)** là các điểm nằm ngoài Q1/Q3 hơn 1.5 lần độ
->   rộng hộp (cùng quy tắc biên được dùng đúng cho `price` ở §4). Ở đây biên được vẽ
->   trên một trục số tùy ý, nên "ngoại lai" chỉ có nghĩa là "có ID nhỏ hoặc lớn," chứ
->   không phải "có hành vi bất thường" — biểu đồ bên trái là bằng chứng.
-> - **Hệ số tương quan *r*** (từ −1 đến 1) đo mức độ một cột tăng/giảm theo đường
->   thẳng cùng với cột kia. **0.453** (toàn bộ dòng) và **0.984** (55.6% số dòng sau
->   khi loại bỏ sentinel) đều là con số thật, chỉ là trả lời sai câu hỏi — xem biểu đồ
->   bên phải: quan hệ thật sự là một hàm bậc thang 96-sang-13, không phải một đường
->   thẳng, nên không giá trị *r* nào mô tả nó tốt cả.
-
-> **📘 Quy tắc có thể áp dụng rộng.** Kiểu dữ liệu số nguyên **không** có nghĩa cột đó
-> là một đại lượng (quantity). Nếu các con số là *nhãn* (ID, mã cấp độ), độ lớn của
-> chúng là tùy ý — mean, skew, IQR và Pearson *r* đều chỉ là "phép tính số học trên số
-> ID" và sẽ gây hiểu lầm. Quan hệ giữa các cột như vậy là **quan hệ hàm** (giá trị A
-> có xác định giá trị B hay không?), được tìm bằng cách kiểm tra ánh xạ 1-1, chứ không
-> phải **quan hệ tuyến tính** (chúng có tăng cùng nhau không?), được tìm bằng tương
-> quan. Hãy xác định vai trò của cột trước; thống kê phù hợp sẽ theo sau.
+> **📘 Quy tắc mang theo.** Kiểu `int` **không** khiến một cột trở thành đại lượng. Nếu
+> các chữ số là một *nhãn* (một ID hay một mã cấp độ), độ lớn của chúng là tùy ý —
+> mean, skew, IQR và Pearson *r* đều chỉ là "phép tính số học trên số ID" và sẽ gây
+> hiểu lầm. Quan hệ giữa các cột như vậy là **quan hệ hàm** (giá trị A có ghim chặt giá
+> trị B không? — tìm bằng kiểm tra ánh xạ 1-1), chứ không phải **quan hệ tuyến tính**
+> (chúng có tăng cùng nhau không? — tìm bằng tương quan). Hãy xác định vai trò của từng
+> cột trước; thống kê phù hợp sẽ theo sau.
 
 **Thay đổi.** `eda_scripts/prep_taobao.py` gán vai trò thực sự trước khi phân tích:
 
@@ -163,11 +189,16 @@ dương — lớp đa số chia cho lớp thiểu số:
 191,554 non-clicks / 48,446 clicks = 3.954
 ```
 
-Tương đương với `(1 − p) / p` với p = 0.201858. Vậy cứ mỗi lượt click thì có ~4 lượt
-không click. Tỷ lệ 1.0 là cân bằng hoàn hảo; quy tắc kinh nghiệm thông thường coi tỷ
-lệ >10 là mất cân bằng nghiêm trọng, nên ở mức 3.95 bộ dữ liệu này chỉ mất cân bằng
-**nhẹ** — đủ để khiến accuracy trở nên vô dụng, nhưng chưa cần đến resampling hay
-class weights.
+Ở đây `p` là **tỷ lệ mẫu dương** — tức tỷ lệ click — bằng số click chia cho tổng số
+dòng: `p = 48,446 / 240,000 = 0.201858`, chính là con số **20.19%** ở đầu mục. Phần
+còn lại, `1 − p = 191,554 / 240,000 = 0.798142`, là tỷ lệ non-click. Vậy nên nếu chia
+cả tử và mẫu của phép chia trên cho cùng tổng N = 240,000, hai số đếm biến thành đúng
+hai tỷ lệ này, và `191,554 / 48,446` được viết lại gọn thành `(1 − p) / p` (chia cả tử
+và mẫu cho cùng một số không bao giờ làm đổi giá trị phân số). Cả hai cách đều cho
+3.954 — vậy cứ mỗi lượt click thì có ~4 lượt không click. Tỷ lệ 1.0 là cân bằng hoàn
+hảo; quy tắc kinh nghiệm thông thường coi tỷ lệ >10 là mất cân bằng nghiêm trọng, nên ở
+mức 3.95 bộ dữ liệu này chỉ mất cân bằng **nhẹ** — đủ để khiến accuracy trở nên vô
+dụng, nhưng chưa cần đến resampling hay class weights.
 
 > **📘 Khái niệm — vì sao tỷ lệ này quan trọng.** Ở mức 20% dương tính, một mô hình
 > luôn dự đoán "không click" cho *tất cả mọi người* đã đạt 80% accuracy trong khi
@@ -190,8 +221,9 @@ so với luồng dữ liệu thực tế có base rate 5%. Các chỉ số xếp
 nhưng ngưỡng quyết định và các phép tính giá trị kỳ vọng (expected value) thì có.
 Cần hiệu chỉnh lại (recalibrate) trước khi chọn bất kỳ ngưỡng nào.
 
-Liên quan: ô lệnh (cell) số 4 trong `Baseline_Model.ipynb` viết "CTR is heavily
-imbalanced (~5% positive)". Nhận xét đó đã lỗi thời — tỷ lệ thực tế là 20%.
+Liên quan: ô markdown "Standard classification sanity checks" (ô số 10) trong
+`Baseline_Model.ipynb` viết "CTR is heavily imbalanced (~5% positive)". Nhận xét đó
+đã lỗi thời — tỷ lệ thực tế là 20%.
 
 ---
 
@@ -262,6 +294,8 @@ Biểu đồ hộp (box plot) thể hiện rõ độ lệch và các "điểm ng
 điểm, chiếm 5.1% — nhưng chúng là các mặt hàng đắt tiền có thật, không phải lỗi.
 `log1p` (bên phải) kéo hộp trở lại về giữa và phần đuôi gần như biến mất.
 
+![price box plot, raw vs log1p](eda_out/report_figures/fig_price_boxplot.png)
+
 | Điểm mốc trên box-plot | Giá trị | Diễn giải |
 |---|---|---|
 | min | ¥2.4 | mặt hàng rẻ nhất |
@@ -271,8 +305,6 @@ Biểu đồ hộp (box plot) thể hiện rõ độ lệch và các "điểm ng
 | max | ¥999 | mặt hàng đắt nhất |
 | IQR = Q3 − Q1 | ¥187 | độ rộng của hộp (50% giữa) |
 | biên trên = Q3 + 1.5·IQR | ¥566.5 | mọi điểm vượt qua đây được vẽ là ngoại lai |
-
-![price box plot, raw vs log1p](eda_out/report_figures/fig_price_boxplot.png)
 
 > **📘 Khái niệm — Độ lệch/Skewness (vì sao là 1.964).** Skew là một con số duy nhất,
 > không đơn vị, đo mức độ *bất đối xứng* của một phân phối:
@@ -311,7 +343,7 @@ term) tường minh.
 
 > **📘 Khái niệm — StandardScaler.** Nó chuẩn hóa lại một cột về **mean 0, std 1**
 > qua công thức z-score `z = (x − mean) / std`. Trên `log1p(price)` (mean 5.03, std
-> 0.77): ¥138 → z = −0.12 (gần đúng mean), ¥999 → z = +2.33 (2.3 độ lệch chuẩn trên
+> 0.80): ¥138 → z = −0.12 (gần đúng mean), ¥999 → z = +2.33 (2.3 độ lệch chuẩn trên
 > mean), ¥2.4 → z = −4.73. Các mô hình tuyến tính/dựa trên khoảng cách (logistic,
 > SVM, kNN) **nhạy cảm với tỷ lệ** — nếu không chuẩn hóa, một đặc trưng có khoảng
 > giá trị 1–7 sẽ lấn át các cột one-hot 0/1 chỉ vì độ lớn, làm lệch gradient. Các mô
@@ -446,8 +478,9 @@ ngoại lệ:
 - **`adgroup_id` (300 mức) → one-hot là ổn và đó cũng là cách baseline đang làm.** Bộ
   lọc top-300 được áp dụng chính xác là để việc này khả thi: mỗi quảng cáo có trung
   bình ~800 lượt hiển thị, đủ để học hệ số riêng cho nó. Target-encode nó sẽ cần
-  fitting out-of-fold để tránh rò rỉ dữ liệu — thêm phức tạp mà không có lợi ích rõ
-  ràng ở mức cardinality này.
+  fitting out-of-fold (mã hóa của mỗi dòng chỉ được tính từ các dòng ở fold *khác*,
+  nên nó không bao giờ thấy nhãn của chính mình) để tránh rò rỉ dữ liệu — thêm phức
+  tạp mà không có lợi ích rõ ràng ở mức cardinality này.
 
 Các ứng viên thực sự phù hợp cho target/frequency-encoding: không còn cột nào, sau
 khi `campaign_id` và `customer` đã bị loại vì dư thừa.
@@ -472,7 +505,7 @@ này.** Pha đó chỉ tính PSI trên các biến số, nên nó chỉ thấy `
 báo cáo "nhỏ" (small). Sự dịch chuyển thực sự nằm ở các biến phân loại. Khoảng cách
 biến thiên toàn phần (Total Variation Distance – TVD), so sánh train và test:
 
-| Đặc trưng | TVD | |
+| Đặc trưng | TVD | Mức độ |
 |---|---|---|
 | `adgroup_id` | **0.277** | lớn |
 | `cate_id` | 0.087 | vừa phải |
@@ -481,6 +514,17 @@ biến thiên toàn phần (Total Variation Distance – TVD), so sánh train v�
 | `final_gender_code` | 0.006 | không đáng kể |
 
 ![Train/test distribution shift](eda_out/report_figures/fig_train_test_shift.png)
+
+> **📘 Khái niệm — TVD và PSI (hai cách đo độ dịch chuyển).** Cả hai trả lời cùng một
+> câu hỏi: *phân phối của một cột dịch chuyển bao xa giữa train và test?* **Total
+> variation distance (TVD)** chạy từ 0 → 1: đó là tỷ lệ khối xác suất bạn phải dịch đi
+> để biến histogram của train thành của test — 0 nghĩa là giống hệt, 1 nghĩa là không
+> chồng lấn. Vậy con số **0.277** của `adgroup_id` cho biết ~28% lượt hiển thị rơi vào
+> một cơ cấu quảng cáo khác với những gì train dự đoán — một mức dịch chuyển lớn.
+> **PSI** (population stability index) hỏi đúng câu đó cho một cột *dạng số* qua tỷ số
+> log theo từng khoảng (bin); pha phân tích tổng quát chỉ chạy PSI trên các biến số,
+> nên nó gắn cờ `price` nhưng bỏ lỡ sự dịch chuyển lớn hơn nhiều ở cơ cấu quảng cáo
+> dạng phân loại.
 
 Quảng cáo nào được phục vụ (served) thay đổi đáng kể giữa hai cửa sổ thời gian —
 quảng cáo được phục vụ nhiều nhất trong train (`710164`, 4.0% số lượt hiển thị) giảm

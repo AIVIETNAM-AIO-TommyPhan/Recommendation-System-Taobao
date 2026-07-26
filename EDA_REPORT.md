@@ -11,6 +11,10 @@ The inline figures below are purpose-built for this report by
 `eda_scripts/report_figures.py` (output in `eda_out/report_figures/`), one per key
 finding. Orange marks ad-side signal throughout; blue marks user/context.
 
+> **📘 How to read this report.** The 📘 callout boxes explain a statistical term the
+> first time it appears — skip any that's already familiar; the finding they sit
+> under stands on its own without them.
+
 ---
 
 ## 0. Resolved: the Excel-mangled `train.csv` has been replaced
@@ -38,10 +42,12 @@ df["time_stamp"] = pd.to_datetime(df["time_stamp"])
 assert df["time_stamp"].dt.second.nunique() > 1, "train.csv lost seconds — regenerate"
 ```
 
-**On duplicates.** 11,786 rows share a `(userid, time_stamp)` key but **zero** are
-full-row duplicates — that is one user seeing several ads in the same second, which
-is genuine. The generic report's duplicate count is taken after `userid`/`time_stamp`
-are dropped, so it is not a duplication problem either. Do not de-duplicate.
+**On duplicates.** 11,213 `(userid, time_stamp)` pairs occur more than once, covering
+22,999 rows in total (11,786 of them are the second-or-later copy of a pair). But
+**zero** rows are full-row duplicates — that is one user seeing several ads in the
+same second, which is genuine. The generic
+report's duplicate count is taken after `userid`/`time_stamp` are dropped, so it is
+not a duplication problem either. Do not de-duplicate.
 
 Every finding below was recomputed against the reloaded files and reproduces exactly.
 
@@ -49,80 +55,103 @@ Every finding below was recomputed against the reloaded files and reproduces exa
 > None of §1–§8 is trustworthy until the input file is known-good, so this section
 > earns index 0: it exists to (1) *prove* the current file is sound with a check
 > table rather than assert it, (2) leave a silent-failure guard so the Excel damage
-> can't recur unnoticed, and (3) stop a reader from de-duplicating the 11,786
+> can't recur unnoticed, and (3) stop a reader from de-duplicating the 22,999
 > same-second rows that only *look* like duplicates.
 
 ---
 
-## 1. Column roles — the generic inference is wrong here, by design
+## 1. Column roles — an integer column isn't automatically a quantity
 
-**Observation.** 16 of 19 modelling columns are integer-typed, so
-`infer_column_kinds` calls them numeric and hands them to the numeric phase, which
-computes skew, IQR fences and Pearson *r* on them. Two examples of what comes back:
+**Observation.** 16 of the 19 modelling columns are stored as integers, so
+`infer_column_kinds` calls them all "numeric" and hands them to the numeric phase,
+which dutifully computes skew, IQR outlier fences and Pearson *r* on every one. But
+the `int` dtype is just *storage* — it says nothing about what the number **means**.
+These 16 integers are really four different kinds of thing:
 
-**"`adgroup_id` skew −2.121, 6,728 IQR outliers, suggest log transform."** Every
-statistic here is arithmetic on identifiers. Q1 = 619,783 and Q3 = 715,187, so the
-IQR fence lands at [476,677, 858,293] and 6,728 impressions fall outside it. But the
-"outliers" are just ads whose ID number happens to be small or large — ad `232014`
-is not an anomalous ad, it is an ad with a low ID. Likewise the mean `adgroup_id`
-is 660,710, a number with no referent, and the −2.121 skew describes how Taobao
-allocated ID numbers, not anything about the ads. Log-transforming it would be
-compressing the ID space.
+- one true **quantity** — `price` (¥200 genuinely is ¥100 more than ¥100);
+- **ID codes** — `adgroup_id`, `cate_id`, `brand`, `customer`, `cms_segid` — names
+  that merely happen to be spelled in digits, where magnitude is meaningless: ad
+  #660,710 is not "more" than ad #85,419, any more than `SELECT AVG(primary_key)`
+  means anything;
+- **ordered codes** — `age_level`, `pvalue_level`, `cms_group_id`, … — where the
+  *order* is real but the spacing between levels isn't;
+- **cyclic** counters — `hour`, `weekday` — where 23:00 is adjacent to 00:00.
 
-**"`cms_segid` ~ `cms_group_id`, r = 0.984."** This one is subtler, because the
-redundancy is *real* but the number is wrong twice over. The raw correlation across
-all 240,000 rows is **0.453**, not 0.984 — the 0.984 only appears once the 55.6% of
-rows with the `cms_segid = 0` sentinel are excluded, so the figure quoted in an
-earlier draft silently conditioned on non-missing. And even 0.453 is meaningless as
-a *linear* statistic: both columns are codes, so Pearson is measuring whether their
-ID numbers were assigned in a compatible order. The genuine relationship is
-functional, not linear — all **96** non-zero `cms_segid` levels map to exactly one
-`cms_group_id`, i.e. `cms_segid` fully determines `cms_group_id`. That is a
-user-side counterpart to the ad-side dependencies in §6, and correlation is the
-wrong instrument to find it (see §6 for why).
+The tool's one mistake is treating all 16 as if they were the first kind. Below:
+one concrete row to see the columns, then the two ways that mistake bites.
+
+> **📘 Quantity vs. label.** A **quantity** is a number whose *size* and *differences*
+> are real — you can average it and subtract it. A **label** is an identity that just
+> uses digits as its spelling (an ID, a category code). Both show up as `int`; only
+> the meaning differs — and mean / skew / IQR / correlation only make sense on
+> quantities.
+
+**One row, up close.** Four impressions of the same ad (`adgroup_id` 433864):
+
+| adgroup_id | cate_id | campaign_id | customer | brand | price | cms_segid | cms_group_id | click |
+|---|---|---|---|---|---|---|---|---|
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 4 | 0 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 3 | 1 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 0 | 5 | 1 |
+| 433864 | 6185 | 12546 | 4001 | 275122 | ¥75.00 | 30 | 4 | 0 |
+
+Read across a row: every ad-side column (`cate_id`, `campaign_id`, `customer`,
+`brand`, `price`) is **identical on all four rows** — they aren't four different
+facts, they're one ad's attributes copied onto four separate impressions (the
+functional dependency §6 covers in full). Only `cms_segid`, `cms_group_id` and
+`click` change, because those describe the *user and the moment*, not the ad.
+
+**Where the mistake bites — two examples.**
+
+*(1) Averaging an ID.* The tool flags "`adgroup_id` skew −2.121, 6,728 IQR outliers,
+suggest log transform." Every number there is arithmetic on ID codes. The quartiles
+are Q1 = 619,783 and Q3 = 715,187, so the IQR outlier fence lands at
+[476,677, 858,293] and 6,728 impressions fall outside it — but those "outliers" are
+just ads whose ID digits happen to be small or large. Ad 433864 above is flagged,
+yet it's a perfectly ordinary ad (388 impressions, 15.5% CTR). The mean 660,710 and
+the −2.121 skew describe how Taobao *allocated* its ID numbers, not anything about
+the ads; a log transform would only squeeze the ID space and fix nothing.
+
+*(2) Correlating two IDs.* The tool flags "`cms_segid` ~ `cms_group_id`, r = 0.984,"
+a near-perfect straight-line link. It's wrong twice. **First**, that 0.984 only
+appears after silently dropping the 55.6% of rows carrying the `cms_segid = 0`
+sentinel (a placeholder for *missing*, see §3); across all 240,000 rows it's 0.453.
+**Second, and more basic:** correlation asks *"do these two rise together along a
+straight line?"* — the wrong question for ID codes. The real link is exact but not
+linear — each of the **96** non-zero `cms_segid` values maps to exactly one
+`cms_group_id`. `cms_segid` *determines* `cms_group_id`, the way a foreign key pins
+down its row, and correlation can't see that: it reports a middling 0.453 for a
+relationship that is actually 100% tight.
+
+> **📘 *r*, the correlation coefficient.** Pearson **r** runs from −1 to +1 and
+> measures only how well a single **straight line** fits two columns: +1 a perfect
+> rising line, 0 no linear link, −1 a perfect falling line. A relationship can be
+> perfectly predictable and *still* score a low *r* if its shape isn't a line —
+> which is exactly what happens with `cms_segid`.
 
 ![Column roles: ID magnitude vs CTR, and the segid→group step function](eda_out/report_figures/fig_column_roles.png)
 
-The left panel plots every ad's CTR against its raw `adgroup_id` number. The grey
-band is everything the IQR rule flags as an "outlier" (below fence 476,677 — no ad
-reaches the upper fence 858,293). Those orange dots are not unusual ads: their CTR
-(9%–31%) sits inside the same range as the blue dots that the rule left alone. The
-rule is reacting only to the ID number being small, which carries no information —
-compare that to `price` in §4, where the flagged tail (12,194 rows above ¥566.5) really
-is the subset of genuinely expensive items.
+The **left panel** plots every ad's CTR against its raw `adgroup_id` number. The
+orange band is everything the outlier rule flags (below fence 476,677 — no ad reaches
+the upper fence 858,293); yet their CTR (9%–31%) sits right inside the range of the
+blue dots the rule left alone. The rule is reacting only to the ID number being
+small, which tells us nothing. (Contrast `price` in §4, where the flagged tail —
+12,194 rows above ¥566.5 — really is the genuinely expensive items.)
 
-The right panel plots every observed `(cms_segid, cms_group_id)` pair. If this were
-a linear relationship the dots would scatter loosely around a rising line — instead
-they form flat horizontal steps: every `cms_segid` on a step shares one, and only
-one, `cms_group_id`. That step shape *is* the functional dependency, and it's why
-correlation gives two different, both-wrong answers (0.453 / 0.984) depending on
-which rows are included — Pearson *r* measures how well a straight line fits, and no
-single line fits a staircase.
+The **right panel** plots every observed `(cms_segid, cms_group_id)` pair. A linear
+relationship would scatter around a rising line; instead the dots fall on flat
+horizontal steps — one, and only one, `cms_group_id` per `cms_segid` — a 96-to-13
+staircase, not a line. That staircase *is* the functional dependency, and it's why
+correlation gives two different, both-wrong answers (0.453 / 0.984): no single
+straight line fits a staircase.
 
-> **📘 Reading the numbers above, plainly.**
-> - **Mean / Q1 / Q3** are just "average," "25th-percentile," and "75th-percentile"
->   value of the raw ID number. They're valid arithmetic, but since the ID number
->   itself is arbitrary (ad #85,419 isn't "less" of an ad than ad #842,734), the
->   arithmetic answers a question nobody's asking.
-> - **Skew (−2.121)** measures whether a distribution leans left or right of its
->   mean (see §4 for the full mechanics). Applied to ID numbers it just describes
->   how Taobao happened to assign them — not a property of the ads.
-> - **IQR outliers (6,728)** are points more than 1.5× the box-width beyond Q1/Q3
->   (the same fence rule used correctly for `price` in §4). Here the fence is drawn
->   on an arbitrary number line, so "outlier" only means "has a low or high ID," not
->   "behaves unusually" — the left panel is the proof.
-> - **Correlation *r*** (−1 to 1) measures how well one column rises or falls in a
->   straight line with another. **0.453** (all rows) and **0.984** (55.6% of rows
->   with the sentinel dropped) are both real numbers, just answering the wrong
->   question — see the right panel: the true relationship is a 96-to-13 step
->   function, not a line, so no *r* value describes it well.
-
-> **📘 The transferable rule.** An integer dtype does **not** mean the column is a
-> quantity. If the numbers are *labels* (IDs, coded levels), their magnitude is
-> arbitrary — mean, skew, IQR and Pearson *r* are all "arithmetic on ID numbers" and
-> will mislead. Relationships among such columns are **functional** (does value A pin
-> down value B?), found by a 1-to-1 mapping check, not **linear** (do they rise
-> together?), found by correlation. Assign the role first; the statistic follows.
+> **📘 The rule to carry forward.** An `int` dtype does **not** make a column a
+> quantity. If the digits are a *label* (an ID or a coded level), their magnitude is
+> arbitrary — mean, skew, IQR and Pearson *r* are all just "arithmetic on ID numbers"
+> and will mislead. Relationships among such columns are **functional** (does value A
+> pin down value B? — found with a 1-to-1 mapping check), not **linear** (do they
+> rise together? — found with correlation). Decide each column's role first; the
+> right statistic follows.
 
 **Change.** `eda_scripts/prep_taobao.py` assigns real roles before analysis:
 
@@ -154,8 +183,13 @@ majority class ÷ minority class:
 191,554 non-clicks / 48,446 clicks = 3.954
 ```
 
-Equivalently `(1 − p) / p` with p = 0.201858. So there are ~4 non-clicks for every
-click. A ratio of 1.0 is perfectly balanced; the common rule of thumb treats >10
+Here `p` is the **positive rate** — the click rate — i.e. clicks over the total:
+`p = 48,446 / 240,000 = 0.201858`, the **20.19%** from the top of this section. The
+rest, `1 − p = 191,554 / 240,000 = 0.798142`, is the non-click rate. So if you divide
+the top and bottom of the ratio above by the same total N = 240,000, the two counts
+turn into exactly these proportions, and `191,554 / 48,446` rewrites compactly as
+`(1 − p) / p` (dividing numerator and denominator by the same number never changes a
+fraction). Both give 3.954 — so there are ~4 non-clicks for every click. A ratio of 1.0 is perfectly balanced; the common rule of thumb treats >10
 as severe imbalance, so at 3.95 this dataset is **mildly** imbalanced — enough to
 make accuracy useless, not enough to need resampling or class weights.
 
@@ -177,8 +211,9 @@ transfer** — a model trained at 20% base rate will systematically over-predict
 against a 5% production stream. Ranking metrics are unaffected; thresholds and
 expected-value calculations are not. Recalibrate before any threshold is chosen.
 
-Related: `Baseline_Model.ipynb` cell 4 says "CTR is heavily imbalanced (~5% positive)".
-That comment is stale — the actual rate is 20%.
+Related: `Baseline_Model.ipynb`'s "Standard classification sanity checks" markdown
+cell (cell 10) says "CTR is heavily imbalanced (~5% positive)". That comment is
+stale — the actual rate is 20%.
 
 ---
 
@@ -244,6 +279,8 @@ Everything past the upper fence (¥566.5) is flagged as an outlier — 12,194 po
 5.1% — but they are real expensive items, not errors. `log1p` (right) pulls the box
 back to the centre and the tail almost vanishes.
 
+![price box plot, raw vs log1p](eda_out/report_figures/fig_price_boxplot.png)
+
 | Box-plot marker | Value | Reading |
 |---|---|---|
 | min | ¥2.4 | cheapest item |
@@ -253,8 +290,6 @@ back to the centre and the tail almost vanishes.
 | max | ¥999 | dearest item |
 | IQR = Q3 − Q1 | ¥187 | width of the box (middle 50%) |
 | upper fence = Q3 + 1.5·IQR | ¥566.5 | anything past this is a plotted outlier |
-
-![price box plot, raw vs log1p](eda_out/report_figures/fig_price_boxplot.png)
 
 > **📘 Concept — Skewness (why 1.964).** Skew is a single unitless number for how
 > *asymmetric* a distribution is: `skew = mean((x−x̄)³) / [mean((x−x̄)²)]^1.5`. The
@@ -287,7 +322,7 @@ its value is as an interaction with user features (price sensitivity by
 `pvalue_level`), which a linear model cannot express without an explicit crossed term.
 
 > **📘 Concept — StandardScaler.** It rescales a column to **mean 0, std 1** via the
-> z-score `z = (x − mean) / std`. On `log1p(price)` (mean 5.03, std 0.77): ¥138 →
+> z-score `z = (x − mean) / std`. On `log1p(price)` (mean 5.03, std 0.80): ¥138 →
 > z = −0.12 (right at the mean), ¥999 → z = +2.33 (2.3 std above), ¥2.4 → z = −4.73.
 > Linear/distance models (logistic, SVM, kNN) are **scale-sensitive** — without this,
 > a feature ranging 1–7 would dominate the 0/1 one-hot columns purely by magnitude and
@@ -388,8 +423,8 @@ sits inside exactly one of the 13 `cms_group_id` buckets, so `cms_group_id` is a
 coarsening of `cms_segid` and adds nothing once the finer column is encoded. The one
 caveat is the sentinel — 55.6% of rows have `cms_segid = 0` (unknown) but still carry
 a real `cms_group_id`, so the coarse column is the *only* user-segment signal
-available on the majority of rows. Keep both: `cms_group_id` is the backoff for
-exactly the rows where `cms_segid` is missing.
+available on the majority of rows. Keep both: `cms_group_id` is the backoff (the
+coarser fall-back feature) for exactly the rows where `cms_segid` is missing.
 
 Worse, `campaign_id` is near-useless here: the top-300 filter left 248 campaigns for
 300 ads, and **217 campaigns contain exactly one ad**. One-hot encoding both is close
@@ -414,8 +449,9 @@ overrides:
 - **`adgroup_id` (300 levels) → one-hot is fine and is what the baseline does.** The
   top-300 filter was applied precisely so this would work: every ad has ~800
   impressions on average, enough to learn its own coefficient. Target-encoding it
-  would need out-of-fold fitting to avoid leakage — more machinery, no clear gain at
-  this cardinality.
+  would need out-of-fold fitting (each row's encoding computed only from *other*
+  folds' rows, so it never sees its own label) to avoid leakage — more machinery, no
+  clear gain at this cardinality.
 
 Genuine target/frequency-encoding candidates: none, once `campaign_id` and
 `customer` are dropped as redundant.
@@ -438,7 +474,7 @@ drew no impressions in the 1.5-day window.)
 computes PSI on numerics, so it sees `price` PSI 0.0486 and reports "small". The
 shift lives in the categoricals. Total variation distance, train vs test:
 
-| Feature | TVD | |
+| Feature | TVD | Reading |
 |---|---|---|
 | `adgroup_id` | **0.277** | large |
 | `cate_id` | 0.087 | moderate |
@@ -447,6 +483,16 @@ shift lives in the categoricals. Total variation distance, train vs test:
 | `final_gender_code` | 0.006 | negligible |
 
 ![Train/test distribution shift](eda_out/report_figures/fig_train_test_shift.png)
+
+> **📘 Concept — TVD and PSI (two ways to measure drift).** Both answer *how far did a
+> column's distribution move between train and test?* **Total variation distance (TVD)**
+> runs 0 → 1: it is the share of probability mass you would have to relocate to turn the
+> train histogram into the test one — 0 means identical, 1 means no overlap. So
+> `adgroup_id`'s **0.277** says ~28% of impressions fell on a different mix of ads than
+> train would predict — a large move. **PSI** (population stability index) asks the same
+> question for a *numeric* column via binned log-ratios; the generic phase only runs it
+> on numerics, which is why it flagged `price` but missed the far bigger shift in the
+> categorical ad mix.
 
 Which ads get served changes materially between the two windows — the most-served
 train ad (`710164`, 4.0% of impressions) drops to 2.0% in test, while `836889` rises
