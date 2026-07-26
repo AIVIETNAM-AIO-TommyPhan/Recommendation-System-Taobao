@@ -282,9 +282,12 @@ Nếu nó thay đổi, kết luận này là sai.
 
 ## 4. `price` — biến số liên tục thực sự duy nhất
 
-Skew **1.964** (lệch phải mạnh); `log1p` đưa về −0.530. 12,194 dòng (5.1%) là điểm
-ngoại lai theo IQR, tất cả đều trên ¥566.5 — là các mặt hàng đắt tiền thật sự, không
-phải lỗi dữ liệu.
+Skew **1.964** — một con số duy nhất cho biết một phân phối *bất đối xứng* đến mức
+nào: dương nghĩa là có một đuôi dài về bên phải (ở đây là các mặt hàng đắt, kéo đến
+¥999) và số càng lớn thì độ lệch càng mạnh, nên đây là lệch phải mạnh. `log1p` đưa về
+−0.530. 12,194 dòng (5.1%) là điểm ngoại lai theo IQR, tất cả đều trên ¥566.5 — là các
+mặt hàng đắt tiền thật sự, không phải lỗi dữ liệu. (Cả hai con số skew đều được diễn
+giải trong các ô 📘 bên dưới.)
 
 ![price distribution and CTR by decile](eda_out/report_figures/fig_price.png)
 
@@ -357,9 +360,49 @@ term) tường minh.
 
 ## 5. Đặc trưng nào thực sự mang tín hiệu
 
-Độ lệch chuẩn (SD) có trọng số theo số lượt hiển thị của CTR ở từng mức, quanh base
-rate 20.19% — càng cao nghĩa là đặc trưng đó phân tách click càng tốt. Các mức có
-dưới 200 lượt hiển thị bị loại để nhiễu do cỡ mẫu nhỏ không làm phóng đại ước lượng.
+**Bảng này đo gì.** Với một đặc trưng như `age_level`, hãy nhìn từng giá trị của nó
+(mỗi giá trị là một **mức**) và tính CTR của mức đó. Nếu mọi mức đều bấm ở tỷ lệ gần
+như nhau, đặc trưng chẳng cho ta thông tin gì; nếu các mức bấm ở những tỷ lệ rất khác
+nhau, đặc trưng phân tách click tốt. Ta đo **độ trải rộng** đó bằng một **độ lệch
+chuẩn (SD)** — trung bình các CTR-từng-mức nằm cách mốc chung 20.19% bao xa — kèm hai
+điều chỉnh: mỗi mức được **cân theo số lượt hiển thị** (mức phổ biến tính nặng hơn mức
+hiếm), và các mức **dưới 200 lượt hiển thị bị loại** (một mức chỉ thấy vài lần có thể
+cho CTR ăn may — là nhiễu chứ không phải tín hiệu). **Càng cao = càng nhiều tín hiệu.**
+
+**"Mức" là gì — một ví dụ tính tay.** Một **mức** là một giá trị riêng biệt mà một cột
+có thể nhận: `age_level` nhận các giá trị 1–6, nên nó có 6 mức, và mỗi mức có CTR
+riêng:
+
+| Mức (`age_level`) | Lượt hiển thị | CTR | Trọng số wᵢ | wᵢ·(CTRᵢ − 0.2019)² |
+|---|---|---|---|---|
+| 1 | 16,880 | 0.226 | 0.070 | 0.000042 |
+| 2 | 60,109 | 0.212 | 0.250 | 0.000028 |
+| 3 | 80,704 | 0.198 | 0.336 | 0.000004 |
+| 4 | 50,279 | 0.188 | 0.210 | 0.000039 |
+| 5 | 30,047 | 0.198 | 0.125 | 0.000002 |
+| 6 | 1,913 | 0.219 | 0.008 | 0.000002 |
+
+> **📘 Cột trọng số, nói gọn.** **Trọng số** của một mức đơn giản là *phần nó chiếm
+> trong tổng lượt hiển thị* — mức đó là bao nhiêu phần của dữ liệu. Tính bằng lượt hiển
+> thị của mức ÷ tổng của mọi mức được giữ (16,880 + 60,109 + … + 1,913 = 239,932): mức
+> 3 là 80,704 / 239,932 ≈ **0.336** (chiếm ~34% dữ liệu), còn mức 6 chỉ 1,913 / 239,932
+> ≈ **0.008** (0.8%). Cân trọng số để mức phổ biến có tiếng nói lớn hơn — giống bỏ
+> phiếu theo dân số — nên một mức hiếm có CTR bất thường không thể chi phối. Cả sáu
+> trọng số cộng lại bằng 1 (toàn bộ dữ liệu).
+
+Sáu mức bấm ở những tỷ lệ thực sự khác nhau — từ 18.8% (mức 4) đến 22.6% (mức 1). Để
+ra SD, cộng **cột cuối** — các đóng góp `wᵢ·(CTRᵢ − 0.2019)²`, **không phải** cột trọng số:
+
+```
+0.000042 + 0.000028 + 0.000004 + 0.000039 + 0.000002 + 0.000002 = 0.000117
+√0.000117 = 0.0108
+```
+
+Con số **0.0108** đó đúng bằng dòng `age_level` trong bảng xếp hạng bên dưới. (Nếu cộng
+cột *trọng số* thì chỉ ra 1 — dấu hiệu các tỷ trọng đã đúng, không phải SD.) Ở đây độ trải rộng là thật nhưng nhỏ, nên
+`age_level` xếp hạng thấp; còn `adgroup_id`, với ~300 mức trải từ 7.7% đến 45.2%, mới
+là nơi độ trải rộng — và tín hiệu — lớn. (Bốn bước số học được trình bày chi tiết cho
+đặc trưng đơn giản nhất là `pid` trong ô 📘 sau bảng.)
 
 | Đặc trưng | Số mức | Khoảng CTR | SD có trọng số |
 |---|---|---|---|
@@ -389,8 +432,11 @@ dưới 200 lượt hiển thị bị loại để nhiễu do cỡ mẫu nhỏ k
 > phương** (bỏ dấu, phạt nặng lệch lớn — cùng ý tưởng với phương sai), (3) **nhân
 > trọng số theo lượt hiển thị** để một mức hiếm có CTR bất thường không chi phối,
 > (4) **căn bậc hai** để đưa về đơn vị CTR cho dễ đọc. Ví dụ tính tay cho `pid`
-> (2 mức): 0.2125 ở trọng số 0.39 và 0.1949 ở trọng số 0.61 →
-> `sqrt(0.000045 + 0.000029) = 0.0086`. Chính việc nhân trọng số theo lượt hiển thị —
+> (2 mức). **Mức A** — CTR 0.2125, trọng số 0.39: lệch 0.2125 − 0.2019 = +0.0106,
+> bình phương 0.000112, ×0.39 = 0.000044. **Mức B** — CTR 0.1949, trọng số 0.61:
+> lệch −0.0070, bình phương 0.000049, ×0.61 = 0.000030. Cộng = 0.000074, và
+> `sqrt(0.000074) = 0.0086` — đúng giá trị trong bảng. Chính việc nhân trọng số theo
+> lượt hiển thị —
 > cộng với việc loại các mức dưới 200 lượt — biến nó thành ước lượng *tín hiệu thật*
 > chứ không phải nhiễu mẫu nhỏ: một quảng cáo chỉ hiện 10 lần với CTR 60% **không**
 > thổi phồng điểm số.
@@ -405,7 +451,7 @@ là hằng số (0.201/0.202/0.203) và là đặc trưng yếu nhất trong to�
 danh mục này), chứ không phải như hiệu ứng chính (main effect). Một mô hình tuyến
 tính chỉ dùng hiệu ứng chính sẽ gần như không nắm bắt được điều đó — cơ hội cải thiện
 mô hình lớn nhất có sẵn ở đây là các đặc trưng tương tác chéo (crossed features)
-hoặc một mô hình tree/FM.
+hoặc một mô hình cây (tree) hay factorization-machine (FM).
 
 **Thay đổi.** Giữ lại các đặc trưng người dùng yếu (chúng vẫn có giá trị trong tương
 tác) nhưng đừng kỳ vọng hiệu ứng chính từ chúng. Ưu tiên các tương tác chéo giữa
@@ -564,6 +610,80 @@ ngày sau, đúng như bối cảnh thực tế khi triển khai production.
 
 ---
 
+## 9. Encoding đặc trưng & lựa chọn đặc trưng — kiểm chứng thực nghiệm (`Nguyen-tasks.ipynb`)
+
+§7 lập luận chỉ dựa trên cardinality và sự dư thừa rằng nên bỏ `campaign_id`/
+`customer`, và một khi đã bỏ thì không còn ứng viên thực sự nào cho target/frequency
+encoding. `Nguyen-tasks.ipynb` kiểm chứng lập luận đó trực tiếp: nó encode cả sáu
+cột **ID định danh (Nominal ID)** ở §1 (`adgroup_id`, `cate_id`, `campaign_id`,
+`customer`, `brand`, `cms_segid`) theo bốn cách — one-hot, count, frequency, target
+(out-of-fold, có làm mượt/smoothing) — fit cùng một mô hình logistic regression
+trên mỗi cách, và chạy một quy trình chọn đặc trưng tham lam tiến (greedy forward
+selection) dựa trên AUC trên tập test. **Base** trong cả hai bảng dưới đây = `price`
+(đã scale) + 10 biến phân loại không phải ID (`cms_group_id`, `final_gender_code`,
+`age_level`, `pvalue_level`, `shopping_level`, `occupation`, `new_user_class_level`,
+`pid`, `hour`, `weekday`), tất cả one-hot — giữ cố định ở mọi dòng.
+
+**Bảng A — cách encode nào thắng.**
+
+| Đặc trưng | AUC train | AUC test | Ghi chú |
+|---|---|---|---|
+| `adgroup_id` + `cate_id` (định danh sản phẩm, one-hot) + base | 0.5929 | 0.5759 | baseline |
+| count-encoded: cả 6 cột ID + base | 0.5385 | 0.5291 | kém hơn baseline |
+| freq-encoded: cả 6 cột ID + base | 0.5385 | 0.5291 | giống hệt count (r = 1.0) |
+| target-encoded: cả 6 cột ID + base | 0.5853 | 0.5753 | ≈ baseline |
+| target-encoded: cả 6 cột ID + tương tác `adgroup_id × cms_group_id` + base | 0.5859 | 0.5760 | ≈ baseline, tốt nhất trong 5 |
+
+Count và frequency encoding là *cùng một con số trên hai thang đo khác nhau*
+(`freq = count / len(train)`) — sau `StandardScaler` chúng khớp mô hình giống hệt
+nhau, đó là lý do AUC của chúng bằng nhau tuyệt đối. Cả hai đạt điểm rõ ràng thấp
+hơn baseline: một count chỉ encode "quảng cáo này được phục vụ bao nhiêu lần," và
+§8 đã cho thấy đó chính là thứ dịch chuyển giữa train và test (`adgroup_id` TVD
+0.277) — count/frequency encoding vô tình nướng luôn sự dịch chuyển đó vào đặc
+trưng. Target encoding, vốn encode "hạng mục này có CTR bao nhiêu" thay vì "hạng
+mục này lớn cỡ nào," lại rơi vào trong biên độ nhiễu so với baseline one-hot.
+
+**Bảng B — đặc trưng riêng lẻ nào thực sự xứng đáng.** Chọn đặc trưng tham lam
+tiến, dùng target encoding, thử các ứng viên theo thứ tự độ mạnh tín hiệu ở §5, chỉ
+giữ lại một đặc trưng nếu AUC trên test cải thiện so với mức tốt nhất hiện tại:
+
+| Bước | Đặc trưng thêm vào | AUC train | AUC test | Kết luận |
+|---|---|---|---|---|
+| start | *(không có gì — chỉ base, chưa có định danh ad/sản phẩm)* | 0.5313 | 0.5197 | mốc tham chiếu |
+| 1 | `adgroup_id` (định danh quảng cáo) | 0.5853 | 0.5752 | **GIỮ** (+0.0554) |
+| 2 | `campaign_id` (chiến dịch của quảng cáo) | 0.5853 | 0.5753 | GIỮ (+0.0001) |
+| 3 | `customer` (nhà quảng cáo) | 0.5853 | 0.5753 | GIỮ (+0.00005) |
+| 4 | `brand` | 0.5853 | 0.5753 | loại (−0.0001) |
+| 5 | `cate_id` (danh mục quảng cáo) | 0.5853 | 0.5753 | loại (≈0) |
+| 6 | `cms_segid` (phân khúc nhỏ người dùng) | 0.5853 | 0.5756 | GIỮ (+0.0003) |
+| 7 | tương tác `adgroup_id × cms_group_id` | 0.5859 | 0.5761 | GIỮ (+0.0005) |
+| 8 | tương tác `adgroup_id × cate_id` | 0.5859 | 0.5762 | GIỮ (+0.00001) |
+
+Tập đặc trưng ở mỗi bước là tích lũy — bao gồm mọi đặc trưng đã được **GIỮ** trước
+đó cộng với đặc trưng đang được thử ở dòng đó. "start" không phải một lần thử; đó
+là mốc tham chiếu mà mọi dòng sau được đo so với nó (0.5197 của nó là mức mà
+`adgroup_id` một mình phải vượt qua ở bước 1; một khi `adgroup_id` được giữ, chính
+0.5752 của nó trở thành mốc tham chiếu mới cho bước 2, và cứ thế tiếp diễn).
+
+Độ lớn các con số tái hiện lại §5 và §6 theo cách định lượng, không chỉ định tính:
+một mình `adgroup_id` (+0.0554) áp đảo mọi đóng góp khác cộng lại, khớp với vị trí
+dẫn đầu 0.0532 SD-có-trọng-số của nó ở §5. Độ chênh lệch của `cate_id` gần 0 nhất
+trong cả 8 ứng viên — đúng như kỳ vọng, vì §6 đã cho thấy `adgroup_id` quyết định
+`cate_id` một cách chính xác (được kiểm chứng lại ở đây: mã hóa target của chúng
+tương quan ở mức 1.0). `campaign_id` và `customer` về mặt kỹ thuật được giữ nhưng
+chênh lệch nhỏ hơn cả sai số làm tròn, phù hợp với nhận định "gần như một bản sao
+của `adgroup_id`" ở §6 chứ không mâu thuẫn với nó. Tương tác `adgroup_id ×
+cms_group_id` là mức tăng lớn thứ ba trong toàn bộ chuỗi thử (chỉ sau `adgroup_id`)
+— bằng chứng trực tiếp cho khẳng định ở §5 rằng dư địa còn lại nằm ở các tương tác
+quảng cáo × phân khúc người dùng, không phải thêm cột ID.
+
+**Lưu ý.** Các bước 2, 3, và 8 giữ lại một đặc trưng dựa trên ngưỡng `delta > 0` đo
+trên một lần chia train/test duy nhất — ở quy mô đó (0.00001–0.0001), nhiễu lấy mẫu
+của chính chỉ số này có thể quyết định kết quả. Chỉ `adgroup_id` và tương tác
+`cms_group_id` của nó đạt mức tăng đủ lớn để tin tưởng mà không cần cross-validation.
+
+---
+
 ## Kế hoạch làm sạch & biến đổi dữ liệu
 
 Fit trên train, sau đó áp dụng cho validation/test.
@@ -612,6 +732,7 @@ cấu hình được.
 | `eda_out/findings.json` | Các phát hiện có cấu trúc |
 | `eda_out/report_figures/` | Các hình minh họa nhúng cho báo cáo này |
 | `eda_out/plots/` | Các hình minh họa của pha phân tích tổng quát |
+| `Nguyen-tasks.ipynb` | So sánh các cách encoding + chọn đặc trưng tham lam (§9) |
 
 Cần hai chỉnh sửa trên các script tổng quát của skill để chạy được trên
 matplotlib 3.11 / Windows: `boxplot(labels=)` → `tick_labels=` trong `numerical.py`

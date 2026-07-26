@@ -268,8 +268,11 @@ moves, this conclusion is wrong.
 
 ## 4. `price` — the only real numeric
 
-Skew **1.964** (strongly right-skewed); `log1p` brings it to −0.530. 12,194 rows
-(5.1%) are IQR outliers, all above ¥566.5 — genuine expensive items, not errors.
+Skew **1.964** — a single number for how *asymmetric* a distribution is: positive
+means a long tail on the right (here, dear items up to ¥999) and the bigger it is the
+stronger the lean, so this is a strong right-skew. `log1p` brings it to −0.530.
+12,194 rows (5.1%) are IQR outliers, all above ¥566.5 — genuine expensive items, not
+errors. (Both skew numbers are worked out in the 📘 boxes below.)
 
 ![price distribution and CTR by decile](eda_out/report_figures/fig_price.png)
 
@@ -336,9 +339,54 @@ its value is as an interaction with user features (price sensitivity by
 
 ## 5. Which features actually carry signal
 
-Impression-weighted standard deviation of per-level CTR around the 20.19% base rate
-— higher means the feature separates clicks better. Levels with <200 impressions
-excluded so small-sample noise doesn't inflate the estimate.
+**What this table measures.** For a feature like `age_level`, look at each of its
+values (each value is a **level**) and compute that level's CTR. If every level
+clicks at about the same rate, the feature tells you nothing; if the levels click at
+very different rates, it separates clicks well. We capture that **spread** as a
+**standard deviation (SD)** — how far the per-level CTRs sit, on average, from the
+shared 20.19% base rate — with two adjustments: each level is **weighted by its
+impression count** (common levels count more than rare ones), and levels with **under
+200 impressions are dropped** (a level seen only a few times can post a fluke CTR —
+noise, not signal). **Higher = more signal.**
+
+**What a "level" is — a worked example.** A **level** is one distinct value a column
+can take: `age_level` holds the values 1–6, so it has 6 levels, and each level has its
+own CTR:
+
+| Level (`age_level`) | Impressions | CTR | Weight wᵢ | wᵢ·(CTRᵢ − 0.2019)² |
+|---|---|---|---|---|
+| 1 | 16,880 | 0.226 | 0.070 | 0.000042 |
+| 2 | 60,109 | 0.212 | 0.250 | 0.000028 |
+| 3 | 80,704 | 0.198 | 0.336 | 0.000004 |
+| 4 | 50,279 | 0.188 | 0.210 | 0.000039 |
+| 5 | 30,047 | 0.198 | 0.125 | 0.000002 |
+| 6 | 1,913 | 0.219 | 0.008 | 0.000002 |
+
+> **📘 The weight column, plainly.** A level's **weight** is simply its *share of the
+> impressions* — how big a slice of the data that level is. Compute it as the level's
+> impressions ÷ the total across all kept levels
+> (16,880 + 60,109 + … + 1,913 = 239,932): level 3 is 80,704 / 239,932 ≈ **0.336**
+> (about 34% of the data), while level 6 is only 1,913 / 239,932 ≈ **0.008** (0.8%).
+> Weighting lets common levels count more — like voting by population — so a rare
+> level with a freak CTR can't dominate. All six weights add up to 1 (the whole
+> dataset).
+
+The six levels click at genuinely different rates — from 18.8% (level 4) up to 22.6%
+(level 1). To get the SD, add up the **last** column — the `wᵢ·(CTRᵢ − 0.2019)²`
+contributions, **not** the weights:
+
+```
+0.000042 + 0.000028 + 0.000004 + 0.000039 + 0.000002 + 0.000002 = 0.000117
+√0.000117 = 0.0108
+```
+
+That **0.0108** is exactly the `age_level` row in the ranking table below. (Summing
+the *weight* column instead just gives 1 — a check that the shares are right, not the
+SD.) Here
+the spread is real but small, so `age_level` ranks as a weak feature; `adgroup_id`,
+whose ~300 levels run from 7.7% to 45.2%, is where the spread — and the signal — is
+large. (The four arithmetic steps are spelled out for the simplest feature, `pid`, in
+the 📘 box after the table.)
 
 | Feature | Levels | CTR range | Weighted SD |
 |---|---|---|---|
@@ -368,8 +416,11 @@ excluded so small-sample noise doesn't inflate the estimate.
 > 20.19% base, (2) **square** it (drops the sign, punishes big gaps — same idea as
 > variance), (3) **weight by impressions** so a rare level with a freak CTR can't
 > dominate, (4) **square-root** back into CTR units so it's readable. Worked example,
-> `pid` (2 levels): 0.2125 at weight 0.39 and 0.1949 at weight 0.61 →
-> `sqrt(0.000045 + 0.000029) = 0.0086`. The impression-weighting — plus dropping levels
+> `pid` (2 levels). **Level A** — CTR 0.2125, weight 0.39: deviation
+> 0.2125 − 0.2019 = +0.0106, squared 0.000112, ×0.39 = 0.000044. **Level B** — CTR
+> 0.1949, weight 0.61: deviation −0.0070, squared 0.000049, ×0.61 = 0.000030.
+> Sum = 0.000074, and `sqrt(0.000074) = 0.0086` — the value in the table.
+> The impression-weighting — plus dropping levels
 > under 200 impressions — is what makes this a *real-signal* estimate, not small-sample
 > noise: an ad seen 10 times at 60% CTR does **not** inflate the score.
 
@@ -381,7 +432,8 @@ the weakest feature in the dataset.
 This is expected for CTR: *which ad* dominates *who saw it*, and user features earn
 their keep through interactions (this user × this category), not as main effects.
 A linear model with only main effects will capture almost none of that — the single
-biggest modelling gain available here is crossed features or a tree/FM model.
+biggest modelling gain available here is crossed features or a tree or
+factorization-machine (FM) model.
 
 **Change.** Keep the weak user features (they matter in interactions) but do not
 expect main-effect lift. Prioritise `adgroup_id`/`cate_id` × user-segment crosses.
@@ -527,6 +579,78 @@ setting.
 
 ---
 
+## 9. Feature encoding & selection — empirical validation (`Nguyen-tasks.ipynb`)
+
+§7 argues from cardinality and redundancy alone that `campaign_id`/`customer` should
+be dropped and that target/frequency encoding has no genuine candidates once they
+are. `Nguyen-tasks.ipynb` tests that argument directly: it encodes all six **Nominal
+ID** columns from §1 (`adgroup_id`, `cate_id`, `campaign_id`, `customer`, `brand`,
+`cms_segid`) four ways — one-hot, count, frequency, target (out-of-fold, smoothed)
+— fits the same logistic regression on each, and runs a greedy forward feature
+selection keyed on test AUC. **Base** in both tables below = `price` (scaled) + the
+10 non-ID categoricals (`cms_group_id`, `final_gender_code`, `age_level`,
+`pvalue_level`, `shopping_level`, `occupation`, `new_user_class_level`, `pid`,
+`hour`, `weekday`), all one-hot — held fixed across every row.
+
+**Table A — which encoding scheme wins.**
+
+| Features | AUC train | AUC test | Note |
+|---|---|---|---|
+| `adgroup_id` + `cate_id` (product identity, one-hot) + base | 0.5929 | 0.5759 | baseline |
+| count-encoded: all 6 ID columns + base | 0.5385 | 0.5291 | worse than baseline |
+| freq-encoded: all 6 ID columns + base | 0.5385 | 0.5291 | identical to count (r = 1.0) |
+| target-encoded: all 6 ID columns + base | 0.5853 | 0.5753 | ≈ baseline |
+| target-encoded: all 6 ID columns + `adgroup_id × cms_group_id` cross + base | 0.5859 | 0.5760 | ≈ baseline, best of the five |
+
+Count and frequency encoding are the *same number on two different scales*
+(`freq = count / len(train)`) — after `StandardScaler` they fit identically, which
+is why their AUC matches exactly. Both score clearly below the baseline: a count
+only encodes "how often was this ad served," and §8 already showed that is exactly
+what shifts between train and test (`adgroup_id` TVD 0.277) — count/frequency
+encoding bakes that shift straight into the feature. Target encoding, which encodes
+"what CTR this category gets" rather than "how big it is," lands within noise of the
+one-hot baseline instead.
+
+**Table B — which individual features earn their place.** Greedy forward selection,
+target-encoded, trying candidates in §5's signal-strength order and keeping a
+feature only if test AUC improves on the current best:
+
+| Step | Feature added | AUC train | AUC test | Verdict |
+|---|---|---|---|---|
+| start | *(none — base only, no ad/product identity)* | 0.5313 | 0.5197 | reference point |
+| 1 | `adgroup_id` (ad identity) | 0.5853 | 0.5752 | **KEPT** (+0.0554) |
+| 2 | `campaign_id` (ad's campaign) | 0.5853 | 0.5753 | KEPT (+0.0001) |
+| 3 | `customer` (advertiser) | 0.5853 | 0.5753 | KEPT (+0.00005) |
+| 4 | `brand` | 0.5853 | 0.5753 | dropped (−0.0001) |
+| 5 | `cate_id` (ad category) | 0.5853 | 0.5753 | dropped (≈0) |
+| 6 | `cms_segid` (user micro-segment) | 0.5853 | 0.5756 | KEPT (+0.0003) |
+| 7 | `adgroup_id × cms_group_id` cross | 0.5859 | 0.5761 | KEPT (+0.0005) |
+| 8 | `adgroup_id × cate_id` cross | 0.5859 | 0.5762 | KEPT (+0.00001) |
+
+Each step's feature set is cumulative — it includes every previously-**KEPT**
+feature plus the one on trial that row. "start" isn't a trial; it's the reference
+every later row is measured against (its 0.5197 is what `adgroup_id` alone has to
+beat in step 1; once `adgroup_id` is kept, *its* 0.5752 becomes the new reference
+for step 2, and so on).
+
+The sizes reproduce §5 and §6 quantitatively rather than just qualitatively:
+`adgroup_id` alone (+0.0554) dwarfs every other addition combined, matching its
+0.0532 weighted-CTR-SD lead in §5. `cate_id`'s delta is the closest to zero of all
+eight candidates — expected, since §6 showed `adgroup_id` determines `cate_id`
+exactly (verified again here: their target-encodings correlate at 1.0). `campaign_id`
+and `customer` are technically kept but by less than a rounding error, consistent
+with §6's "close to a copy of `adgroup_id`" rather than a contradiction of it. The
+`adgroup_id × cms_group_id` cross is the third-largest gain in the whole trace
+(behind only `adgroup_id` itself) — direct evidence for §5's claim that the
+remaining headroom is in ad × user-segment interactions, not more ID columns.
+
+**Caveat.** Steps 2, 3, and 8 keep a feature on a `delta > 0` threshold measured on
+a single train/test split — at that scale (0.00001–0.0001) the metric's own
+sampling noise can decide the verdict. Only `adgroup_id` and its `cms_group_id`
+cross clear a gain large enough to trust without cross-validation.
+
+---
+
 ## Cleaning & transformation plan
 
 Fit on train only, then apply to validation/test.
@@ -572,6 +696,7 @@ reproducible; `eda_scripts/transform.py` has a configurable implementation.
 | `eda_out/findings.json` | Structured findings |
 | `eda_out/report_figures/` | Inline figures for this report |
 | `eda_out/plots/` | Generic phase figures |
+| `Nguyen-tasks.ipynb` | Encoding-scheme comparison + greedy feature selection (§9) |
 
 Two edits were needed to the skill's generic scripts to run on
 matplotlib 3.11 / Windows: `boxplot(labels=)` → `tick_labels=` in `numerical.py`
