@@ -89,3 +89,36 @@ for c in ALL_TS:
 TR = full[full._s=="tr"].copy()
 TE = full[full._s=="te"].copy()
 print("ALL_TS:", len(ALL_TS), "features  |  TR:", TR.shape, "TE:", TE.shape)
+
+# ===== CELL C: ABLATION + CHOT CAU HINH =====
+USER_CAT = ["cms_group_id","final_gender_code","age_level","pvalue_level",
+            "shopping_level","occupation","new_user_class_level","pid","hour","weekday"]
+FULL_CAT = ["adgroup_id","cate_id"] + USER_CAT
+ytr, yte = TR[TARGET], TE[TARGET]
+
+def run(num, cat):
+    steps = []
+    if num: steps.append(("num", StandardScaler(), num))
+    if cat: steps.append(("cat", OneHotEncoder(handle_unknown="ignore"), cat))
+    m = Pipeline([("p", ColumnTransformer(steps)),
+                  ("c", LogisticRegression(max_iter=1000, random_state=RANDOM_SEED))])
+    m.fit(TR[num+cat], ytr)
+    return roc_auc_score(yte, m.predict_proba(TE[num+cat])[:, 1])
+
+# ---------- (1) ABLATION: do SUC RIENG tung feature (bo one-hot ad) ----------
+auc_u = run(["price"], USER_CAT)
+print(f"USER-ONLY  AUC={auc_u:.4f}\n--- suc rieng tung feature ---")
+for f in ALL_TS:
+    print(f"+{f:22s} d={run(['price', f], USER_CAT)-auc_u:+.4f}")
+
+# ---------- (2) CHOT: so 4 cau hinh voi bo feature ngon nhat ----------
+BEST = ["adg_ctr_lag1","adg_ctr_lag2","adg_ctr_lag3","cate_ctr_lag1","cate_ctr_lag2"]
+
+a0 = run(["price"], FULL_CAT)                 # A. BASELINE goc (one-hot ad)
+a2 = run(["price"]+BEST, USER_CAT)            # C. CTR-lag THAY one-hot ad
+a3 = run(["price"]+BEST, FULL_CAT)            # D. one-hot ad + THEM CTR-lag
+
+print("\n================ CHOT ================")
+print(f"A. BASELINE (one-hot ad, 300 cot)   AUC={a0:.4f}")
+print(f"C. CTR-lag THAY one-hot ({len(BEST)} cot) AUC={a2:.4f}  (vs baseline {a2-a0:+.4f})")
+print(f"D. one-hot + THEM CTR-lag           AUC={a3:.4f}  (vs baseline {a3-a0:+.4f})")
