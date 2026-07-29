@@ -1,6 +1,10 @@
 # Data (too large / regeneratable — not tracked in git)
-data/
+data/bronze/
+data/silver/
+data/gold/
+
 dataset/
+input_data/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -15,3 +19,4 @@ __pycache__/
 
 # notebook 
 Sample_Dataset.ipynb
+medallion/gold/snapshots.py
