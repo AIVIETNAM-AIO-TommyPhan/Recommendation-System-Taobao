@@ -5,6 +5,9 @@ data/gold/
 
 dataset/
 input_data/
+EDA/archive
+catboost_info/
+experiment/models/
 
 # Jupyter
 .ipynb_checkpoints/
