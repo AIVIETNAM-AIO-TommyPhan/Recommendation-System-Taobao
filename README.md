@@ -244,13 +244,30 @@ recommendation_system/
 │   └── images/                    #   Biểu đồ xuất ra từ EDA.ipynb
 │
 ├── output_data/                   # recommendations_top100.json — Top-100 user mẫu, từ notebook
-├── models/, app/, logs/           # Scaffold cho phần mở rộng sau này — hiện rỗng, xem mục 11
+├── models/, app/, logs/           # Scaffold cho phần mở rộng sau này — hiện rỗng, xem mục 12
+├── scripts/                       # Wrapper PowerShell — xem mục 9-11
+│   ├── setup.ps1                  #   Tạo .venv, cài requirements.txt, check input_data/
+│   ├── run_pipeline.ps1           #   Chạy medallion pipeline (toàn bộ hoặc từng layer)
+│   ├── run_tests.ps1              #   pytest wrapper
+│   ├── airflow_up.ps1             #   docker compose up --build + chờ healthy + hướng dẫn UI
+│   └── airflow_down.ps1           #   docker compose down (có tuỳ chọn -Wipe volume)
+├── pytest.ini                     # testpaths=tests — tránh pytest quét nhầm airflow/logs/
 ├── requirements.txt               # Version cố định của toàn bộ dependency (bao gồm pytest)
 ├── Explain_metric.xlsx            # Giải thích metric bổ sung (dạng bảng tính)
 └── README.md                      # File này
 ```
 
 ## 9. Local quick-start
+
+Cách nhanh nhất — chạy script, mỗi bước tự in ra đang làm gì và bước tiếp theo là gì:
+
+```powershell
+.\scripts\setup.ps1              # tạo .venv, cài requirements.txt, kiểm tra input_data/
+.\scripts\run_pipeline.ps1       # chạy Bronze -> Silver -> Gold, in nơi output được ghi
+.\scripts\run_pipeline.ps1 -Layer gold   # hoặc chỉ chạy lại 1 layer (bronze/silver/gold)
+```
+
+Tương đương thủ công, nếu muốn hiểu rõ từng lệnh script đang gọi (hoặc không dùng Windows):
 
 ```bash
 python -m venv .venv && .venv\Scripts\activate      # Windows; source .venv/bin/activate trên Unix
@@ -259,8 +276,7 @@ pip install -r requirements.txt
 # Đặt các file dữ liệu gốc vào input_data/ (mục 4, 5): train.csv, test.csv,
 # ad_feature.csv.zip, user_profile.csv.zip
 
-# Chạy toàn bộ Bronze -> Silver -> Gold
-python medallion/run_pipeline.py
+python medallion/run_pipeline.py       # chạy toàn bộ Bronze -> Silver -> Gold
 
 # Hoặc chạy riêng từng layer
 python -m medallion.bronze.ingest
@@ -274,6 +290,18 @@ xem lưu ý về trùng lặp có chủ đích ở `medallion/README.md`).
 
 ## 10. Chạy tự động qua Airflow
 
+```powershell
+.\scripts\airflow_up.ps1     # build + start stack, tự chờ tới khi webserver healthy
+# ... dùng xong ...
+.\scripts\airflow_down.ps1   # dừng stack (thêm -Wipe để xoá luôn metadata Postgres)
+```
+
+`airflow_up.ps1` còn tự xử lý một lỗi thường gặp lần đầu cài Docker Desktop trên Windows: PATH
+của phiên PowerShell hiện tại chưa có `docker.exe`/credential helper dù Docker Desktop đã chạy —
+script tự thêm đường dẫn cài đặt mặc định vào PATH cho phiên hiện tại, không cần sửa PATH hệ thống.
+
+Tương đương thủ công:
+
 ```bash
 docker compose -f airflow/docker-compose.yaml up -d --build
 ```
@@ -285,9 +313,14 @@ Mở http://localhost:8080 (`admin` / `admin`), trigger DAG `medallion_pipeline`
 
 ## 11. Tests
 
-```bash
-pytest -q
+```powershell
+.\scripts\run_tests.ps1              # pytest -q
+.\scripts\run_tests.ps1 -Verbose     # pytest -v — in tên từng test
 ```
+
+Tương đương thủ công: `pytest -q` (cần `pytest.ini` ở repo root để giới hạn discovery vào
+`tests/` — nếu không, pytest sẽ cố quét cả `airflow/logs/scheduler/latest`, một reparse point mà
+`pathlib` không stat được trên Windows, và collection sẽ lỗi ngay từ đầu).
 
 16 test trong `tests/`, cô lập I/O bằng dữ liệu dựng tay (không đọc `input_data/` thật), phủ 3
 module chính của `medallion/`:
