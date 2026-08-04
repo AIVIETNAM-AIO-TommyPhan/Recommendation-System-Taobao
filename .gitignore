@@ -20,6 +20,10 @@ __pycache__/
 # Claude
 .claude/
 
+# Airflow (runtime state, not project source)
+airflow/logs/
+airflow/plugins/
+
 # notebook 
 Sample_Dataset.ipynb
 medallion/gold/snapshots.py
