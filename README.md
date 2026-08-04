@@ -111,9 +111,8 @@ Vì sao cần cả hai: AUC tốt không đảm bảo Top K tốt — hai model 
 chất lượng Top K rất khác nhau (verify được trong notebook: model AUC cao nhất — RandomForest —
 không phải lúc nào cũng có Recall@K cao nhất so với các model khác). Ngoài ra còn có:
 
-- **Baseline so sánh**: Random (sàn lý thuyết, Recall@K ≈ K/300) và Popularity (không cá nhân hóa,
-  luôn rank theo `ag_ctr_before` — CTR lịch sử của chính sản phẩm) — để biết model thực sự học
-  được gì ngoài "cứ show sản phẩm hot nhất."
+- **Baseline so sánh**: Random (sàn lý thuyết, Recall@K ≈ K/300) — để biết model thực sự học
+  được điều gì ngoài việc rank ngẫu nhiên.
 - **CTR-lift/gains chart**: đo CTR thực tế đạt được nếu chỉ hành động trên top X% impression có
   điểm dự đoán cao nhất, so với baseline 19.26% — trả lời câu hỏi kinh doanh "CTR cải thiện được
   bao nhiêu" (không có một con số duy nhất, mà là một đường cong phụ thuộc mức độ chọn lọc).
@@ -172,7 +171,7 @@ recommendation JSON) nằm ở **`experiment/Full_Training_Model.ipynb`**, khôn
 ## 7. Kết quả model
 
 5 model ứng viên huấn luyện trên cùng bộ đặc trưng Gold, đánh giá trên tập test 60.000 dòng
-(time-based split), so với 2 baseline không cá nhân hoá:
+(time-based split), so với baseline Random:
 
 | Model | AUC | Recall@10 | Recall@20 | Recall@50 | Recall@100 |
 |---|---|---|---|---|---|
@@ -181,7 +180,6 @@ recommendation JSON) nằm ở **`experiment/Full_Training_Model.ipynb`**, khôn
 | LogisticRegression | 0.605 | 0.095 | 0.165 | 0.324 | 0.495 |
 | LightGBM | 0.603 | 0.073 | 0.136 | 0.301 | 0.500 |
 | XGBoost | 0.603 | 0.082 | 0.144 | 0.308 | 0.495 |
-| Popularity baseline | 0.576 | 0.097 | 0.174 | 0.348 | 0.514 |
 | Random baseline | 0.500 | 0.034 | 0.068 | 0.173 | 0.338 |
 
 **Winner: RandomForest** (AUC cao nhất), lưu tại
@@ -189,12 +187,8 @@ recommendation JSON) nằm ở **`experiment/Full_Training_Model.ipynb`**, khôn
 danh sách cột categorical/numeric, không có metadata JSON riêng (khác pattern
 train.json/evaluate.json của một số dự án khác — xem mục 9).
 
-Lưu ý quan trọng khi đọc bảng trên: Popularity baseline (không cá nhân hoá) **ngang bằng hoặc
-nhỉnh hơn** mọi model đã train ở Recall@20/50/100, dù AUC thấp hơn hẳn — hệ quả trực tiếp của việc
-user trung bình chỉ xuất hiện ~1.6–1.7 lần trong log (mục 4), khiến tín hiệu cá nhân hoá còn quá
-mỏng để thắng "luôn đề xuất sản phẩm đang hot". CTR-lift thực tế: hành động trên top 5% impression
-điểm cao nhất đạt CTR 32.8% so với baseline 19.26% (lift 1.70×). Chi tiết đầy đủ nằm trong
-`experiment/Full_Training_Model.ipynb`.
+CTR-lift thực tế: hành động trên top 5% impression điểm cao nhất đạt CTR 32.8% so với baseline
+19.26% (lift 1.70×). Chi tiết đầy đủ nằm trong `experiment/Full_Training_Model.ipynb`.
 
 ## 8. Cấu trúc Repo
 
